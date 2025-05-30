@@ -48,32 +48,21 @@ def sample_valid_index(action_space_size, num_nodes):
         if is_valid_index(action_idx, num_nodes):
             return action_idx
 
-def sample_exploration_index(new_action_space_size, new_num_nodes, old_action_space_size, exploration_bias=0.8):
-    """
-    Sampling cho exploration (random action) ưu tiên chọn action mới.
 
-    Params:
-    - new_action_space_size: tổng số action mới
-    - new_num_nodes: số node mới (để is_valid_index)
-    - old_action_space_size: size action cũ
-    - exploration_bias: xác suất chọn action mới (0..1)
-    """
+def sample_exploration_index(new_action_space_size, new_num_nodes, old_num_nodes):
+    new_node_indices = []
+    for i in range(new_num_nodes):
+        for j in range(new_num_nodes):
+            if i != j:
+                if (i >= old_num_nodes or j >= old_num_nodes):
+                    idx = cantor_pairing(i, j)
+                    if idx >= new_action_space_size :
+                        continue
+                    new_node_indices.append(idx)
 
-    # Lấy danh sách các index hợp lệ
-    valid_indices = [idx for idx in range(new_action_space_size) if is_valid_index(idx, new_num_nodes)]
-
-    old_valid = [idx for idx in valid_indices if idx < old_action_space_size]
-    new_valid = [idx for idx in valid_indices if idx >= old_action_space_size]
-
-    r = random.random()
-    if r < exploration_bias and len(new_valid) > 0:
-        return random.choice(new_valid)
-    elif len(old_valid) > 0:
-        return random.choice(old_valid)
-    else:
-        # fallback: chọn bất kỳ hợp lệ nào nếu 2 nhóm trên rỗng (khó xảy ra)
-        return random.choice(valid_indices)
-
+    if not new_node_indices:
+        raise ValueError("No valid new-node-related actions found")
+    return random.choice(new_node_indices)
 
 
 class DQN(nn.Module):
@@ -166,7 +155,7 @@ class NetworkSecurityEnv:
         return new_state, reward, done, path, captured
 
     def get_action_space_size(self):
-        return self.num_nodes * self.num_nodes
+        return 2*self.num_nodes**2 + self.num_nodes
 
 
 # Attacker's greedy attack with randomizer
@@ -201,7 +190,6 @@ def global_weighted_random_attack(graph, honeypot_nodes, goal):
         # Choose next node randomly based on probabilities
         chosen_idx = random.choices(range(len(neighbors)), weights=probabilities, k=1)[0]
         chosen_node = neighbors[chosen_idx]
-        source_node = source_nodes[chosen_idx]
 
         # Add to path and captured
         path.append(chosen_node)
