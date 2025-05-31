@@ -115,7 +115,6 @@ class NetworkSecurityEnv:
         self.num_nodes = len(self.nodes)
         self.state = np.zeros(self.num_nodes, dtype=np.float32)
         self.node_to_idx = {node: idx for idx, node in enumerate(self.nodes)}
-
     def reset(self):
         self.state = np.zeros(self.num_nodes, dtype=np.float32)
         return self.state
@@ -129,11 +128,11 @@ class NetworkSecurityEnv:
             if action[i, node_idx] == 0:
                 node_idx = random.randint(0, self.num_nodes - 1)
             node = self.nodes[node_idx]
-            honeypot = f"Honeypot_{i}"
+            honeypot = f"Honeypot {{{self.nodes[node_idx]}}}"
             honeypot_nodes.append(honeypot)
             G.add_node(honeypot)
             G.add_edge(node, honeypot, user=0.8, root=0.8)
-
+            self.graph = deepcopy(G)
         path, captured = self.attack_fn(G, honeypot_nodes, self.goal)
 
         new_state = np.zeros(self.num_nodes, dtype=np.float32)
@@ -260,7 +259,6 @@ def evaluate_model(model, env, num_episodes=1000):
 
             action = index_to_action(action_idx, state_size)
             next_state, reward, done, path, captured = env.step(action)
-            action_idx = action_to_index(action, state_size)
 
             state = next_state
             honeypot_nodes = []
