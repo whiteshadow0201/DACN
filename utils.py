@@ -49,21 +49,51 @@ def sample_valid_index(action_space_size, num_nodes):
             return action_idx
 
 
-def sample_exploration_index(new_action_space_size, new_num_nodes, old_num_nodes):
+def sample_exploration_index(new_action_space_size, new_num_nodes, old_num_nodes, old_class_prob=0.1):
+    """
+    Selects an exploration index, prioritizing new node pairs but allowing old class pairs
+    with a specified probability.
+
+    Args:
+        new_action_space_size (int): Size of the action space
+        new_num_nodes (int): Total number of nodes (including old and new)
+        old_num_nodes (int): Number of old nodes
+        old_class_prob (float): Probability of selecting an old class pair (default: 0.3)
+
+    Returns:
+        int: Selected index from either new node pairs or old class pairs
+
+    Raises:
+        ValueError: If no valid actions are found
+    """
     new_node_indices = []
+    old_node_indices = []
+
+    # Collect indices for new node pairs
     for i in range(new_num_nodes):
         for j in range(new_num_nodes):
             if i != j:
-                if (i >= old_num_nodes or j >= old_num_nodes):
-                    idx = cantor_pairing(i, j)
-                    if idx >= new_action_space_size :
-                        continue
+                idx = cantor_pairing(i, j)
+                if idx >= new_action_space_size:
+                    continue
+                if i >= old_num_nodes or j >= old_num_nodes:
                     new_node_indices.append(idx)
+                else:
+                    old_node_indices.append(idx)
 
-    if not new_node_indices:
-        raise ValueError("No valid new-node-related actions found")
-    return random.choice(new_node_indices)
+    # Decide whether to select from old or new indices based on probability
+    if old_node_indices and random.random() < old_class_prob:
+        return random.choice(old_node_indices)
 
+    # Default to new node indices if available
+    if new_node_indices:
+        return random.choice(new_node_indices)
+
+    # Fallback to old node indices if no new node indices are available
+    if old_node_indices:
+        return random.choice(old_node_indices)
+
+    raise ValueError("No valid actions found")
 
 class DQN(nn.Module):
     def __init__(self, state_size, action_space_size):
