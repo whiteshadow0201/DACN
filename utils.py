@@ -7,7 +7,8 @@ from queue import PriorityQueue
 from copy import deepcopy
 import torch
 import torch.nn as nn
-from collections import deque
+from collections import deque, defaultdict
+
 
 def cantor_pairing(k1, k2):
     return (k1 + k2) * (k1 + k2 + 1) // 2 + k2
@@ -42,58 +43,89 @@ def is_valid_index(index, num_nodes):
     first, second = inverse_cantor(index)
     return first != second and first < num_nodes and second < num_nodes
 
-def sample_valid_index(action_space_size, num_nodes):
-    while True:
-        action_idx = random.randint(0, action_space_size - 1)
-        if is_valid_index(action_idx, num_nodes):
-            return action_idx
 
-
-def sample_exploration_index(new_action_space_size, new_num_nodes, old_num_nodes, old_class_prob=0.1):
+def sample_valid_index(action_space_size, num_nodes, exploration_counter, min_explorations=10):
     """
-    Selects an exploration index, prioritizing new node pairs but allowing old class pairs
-    with a specified probability.
+    Samples a random valid index, ensuring each valid index is explored at least
+    min_explorations times before exploration is considered complete.
 
     Args:
-        new_action_space_size (int): Size of the action space
-        new_num_nodes (int): Total number of nodes (including old and new)
-        old_num_nodes (int): Number of old nodes
-        old_class_prob (float): Probability of selecting an old class pair (default: 0.3)
+        action_space_size (int): The size of the action space
+        num_nodes (int): The total number of nodes
+        exploration_counter (defaultdict): Counter tracking explorations per index
+        min_explorations (int): Minimum number of times each valid index must be explored
 
     Returns:
-        int: Selected index from either new node pairs or old class pairs
+        int: A randomly selected valid index with less than min_explorations
+    """
+    valid_indices = [idx for idx in range(action_space_size) if is_valid_index(idx, num_nodes)]
+
+    if not valid_indices:
+        raise ValueError("No valid indices found")
+
+    # Check if all valid indices have been explored at least min_explorations times
+    under_explored = [idx for idx in valid_indices if exploration_counter[idx] < min_explorations]
+
+    if under_explored:
+        # Prioritize under-explored indices
+        selected_idx = random.choice(under_explored)
+        exploration_counter[selected_idx] += 1
+        return selected_idx
+    else:
+        # Switch to pure random sampling after all indices meet the threshold
+        selected_idx = random.choice(valid_indices)
+        exploration_counter[selected_idx] += 1
+        return selected_idx
+
+
+def sample_exploration_index(new_action_space_size, new_num_nodes, old_num_nodes, exploration_counter, min_explorations=10):
+    """
+    Samples a random index from possible new node pairs in an expanded action space.
+    Uses Cantor pairing to map node pairs (i, j) to unique indices, considering only
+    pairs where at least one node is new (i.e., i or j >= old_num_nodes). Tracks exploration
+    counts and continues until each valid pair is explored at least min_explorations times.
+
+    Args:
+        new_action_space_size (int): The size of the new action space, limiting valid indices
+        new_num_nodes (int): The total number of nodes after expansion
+        old_num_nodes (int): The number of nodes before expansion
+        min_explorations (int): Minimum number of times each valid pair must be explored
+
+    Returns:
+        int: A randomly selected index from valid new node pairs with less than min_explorations
 
     Raises:
-        ValueError: If no valid actions are found
+        ValueError: If no valid new-node-related actions are found
     """
+    # Initialize counter for tracking explorations of each index
     new_node_indices = []
-    old_node_indices = []
 
-    # Collect indices for new node pairs
+    # Generate all valid indices for new node pairs
     for i in range(new_num_nodes):
         for j in range(new_num_nodes):
             if i != j:
-                idx = cantor_pairing(i, j)
-                if idx >= new_action_space_size:
-                    continue
                 if i >= old_num_nodes or j >= old_num_nodes:
+                    idx = cantor_pairing(i, j)
+                    if idx >= new_action_space_size:
+                        continue
                     new_node_indices.append(idx)
-                else:
-                    old_node_indices.append(idx)
 
-    # Decide whether to select from old or new indices based on probability
-    if old_node_indices and random.random() < old_class_prob:
-        return random.choice(old_node_indices)
+    if not new_node_indices:
+        raise ValueError("No valid new-node-related actions found")
 
-    # Default to new node indices if available
-    if new_node_indices:
-        return random.choice(new_node_indices)
+    # Continue sampling until all indices have been explored at least min_explorations times
+    while True:
+        # Find indices that have been explored less than min_explorations times
+        under_explored = [idx for idx in new_node_indices if exploration_counter[idx] < min_explorations]
 
-    # Fallback to old node indices if no new node indices are available
-    if old_node_indices:
-        return random.choice(old_node_indices)
+        if not under_explored:
+            # All indices have been explored at least min_explorations times
+            break
 
-    raise ValueError("No valid actions found")
+        # Sample a random index from under-explored ones
+        selected_idx = random.choice(under_explored)
+        exploration_counter[selected_idx] += 1
+        return selected_idx
 
 class DQN(nn.Module):
     def __init__(self, state_size, action_space_size):
