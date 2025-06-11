@@ -1,4 +1,3 @@
-
 # utils.py
 import math
 import random
@@ -35,8 +34,6 @@ def index_to_action(index, num_nodes):
     action[0, first] = 1
     action[1, second] = 1
     return action
-
-
 
 
 def is_valid_index(index, num_nodes):
@@ -78,17 +75,18 @@ def sample_valid_index(action_space_size, num_nodes, exploration_counter, min_ex
         return selected_idx
 
 
-def sample_exploration_index(new_action_space_size, new_num_nodes, old_num_nodes, exploration_counter, min_explorations=10):
+def sample_exploration_index(new_action_space_size, new_num_honeypot_nodes, old_num_honeypot_nodes, exploration_counter, min_explorations=10):
     """
     Samples a random index from possible new node pairs in an expanded action space.
     Uses Cantor pairing to map node pairs (i, j) to unique indices, considering only
-    pairs where at least one node is new (i.e., i or j >= old_num_nodes). Tracks exploration
+    pairs where at least one node is new (i.e., i or j >= old_num_honeypot_nodes). Tracks exploration
     counts and continues until each valid pair is explored at least min_explorations times.
 
     Args:
         new_action_space_size (int): The size of the new action space, limiting valid indices
-        new_num_nodes (int): The total number of nodes after expansion
-        old_num_nodes (int): The number of nodes before expansion
+        new_num_honeypot_nodes (int): The number of honeypot-eligible nodes after expansion
+        old_num_honeypot_nodes (int): The number of honeypot-eligible nodes before expansion
+        exploration_counter (defaultdict): Counter tracking explorations per index
         min_explorations (int): Minimum number of times each valid pair must be explored
 
     Returns:
@@ -97,14 +95,13 @@ def sample_exploration_index(new_action_space_size, new_num_nodes, old_num_nodes
     Raises:
         ValueError: If no valid new-node-related actions are found
     """
-    # Initialize counter for tracking explorations of each index
     new_node_indices = []
 
     # Generate all valid indices for new node pairs
-    for i in range(new_num_nodes):
-        for j in range(new_num_nodes):
+    for i in range(new_num_honeypot_nodes):
+        for j in range(new_num_honeypot_nodes):
             if i != j:
-                if i >= old_num_nodes or j >= old_num_nodes:
+                if i >= old_num_honeypot_nodes or j >= old_num_honeypot_nodes:
                     idx = cantor_pairing(i, j)
                     if idx >= new_action_space_size:
                         continue
@@ -113,17 +110,15 @@ def sample_exploration_index(new_action_space_size, new_num_nodes, old_num_nodes
     if not new_node_indices:
         raise ValueError("No valid new-node-related actions found")
 
-    # Continue sampling until all indices have been explored at least min_explorations times
-    while True:
-        # Find indices that have been explored less than min_explorations times
-        under_explored = [idx for idx in new_node_indices if exploration_counter[idx] < min_explorations]
+    # Find indices that have been explored less than min_explorations times
+    under_explored = [idx for idx in new_node_indices if exploration_counter[idx] < min_explorations]
 
-        if not under_explored:
-            # All indices have been explored at least min_explorations times
-            break
-
-        # Sample a random index from under-explored ones
+    if under_explored:
         selected_idx = random.choice(under_explored)
+        exploration_counter[selected_idx] += 1
+        return selected_idx
+    else:
+        selected_idx = random.choice(new_node_indices)
         exploration_counter[selected_idx] += 1
         return selected_idx
 
@@ -142,7 +137,6 @@ class DQN(nn.Module):
         x = self.relu(self.fc3(x))
         x = self.fc4(x)
         return x
-
 
 
 class ReplayBuffer:
@@ -173,10 +167,17 @@ class NetworkSecurityEnv:
         self.G_new = G_new
         self.attack_fn = attack_fn
         self.goal = goal
-        self.nodes = [n for n in G_new.nodes if n not in ["Attacker", goal]]
+        self.nodes = [n for n in G_new.nodes if n not in ["Attacker"]]
         self.num_nodes = len(self.nodes)
         self.state = np.zeros(self.num_nodes, dtype=np.float32)
         self.node_to_idx = {node: idx for idx, node in enumerate(self.nodes)}
+
+        print("node_to_idx:", self.node_to_idx)
+        # Danh sách các node có thể đặt honeypot (loại trừ cả Attacker và Data Server)
+        self.honeypot_nodes = [n for n in self.nodes if n != goal]
+        self.num_honeypot_nodes = len(self.honeypot_nodes)
+
+
     def reset(self):
         self.state = np.zeros(self.num_nodes, dtype=np.float32)
         return self.state
@@ -188,13 +189,14 @@ class NetworkSecurityEnv:
         for i in range(2):
             node_idx = np.argmax(action[i])
             if action[i, node_idx] == 0:
-                node_idx = random.randint(0, self.num_nodes - 1)
-            node = self.nodes[node_idx]
-            honeypot = f"Honeypot {{{self.nodes[node_idx]}}}"
+                node_idx = random.randint(0, self.num_honeypot_nodes - 1)
+            node = self.honeypot_nodes[node_idx]
+            honeypot = f"Honeypot {{{node}}}"
             honeypot_nodes.append(honeypot)
             G.add_node(honeypot)
             G.add_edge(node, honeypot, user=0.8, root=0.8)
             self.graph = deepcopy(G)
+
         path, captured = self.attack_fn(G, honeypot_nodes, self.goal)
 
         new_state = np.zeros(self.num_nodes, dtype=np.float32)
@@ -207,6 +209,7 @@ class NetworkSecurityEnv:
         elif self.goal in captured:
             reward = -1
             done = True
+            new_state[self.node_to_idx[self.goal]] = 1
 
         for node in captured:
             if node in self.node_to_idx:
@@ -216,7 +219,7 @@ class NetworkSecurityEnv:
         return new_state, reward, done, path, captured
 
     def get_action_space_size(self):
-        return 2*self.num_nodes**2
+        return 2 * self.num_honeypot_nodes ** 2
 
 
 # Attacker's greedy attack with randomizer
@@ -293,12 +296,9 @@ def greedy_attack_priority_queue(graph, honeypot_nodes, goal):
     return path, captured
 
 
-
-
 def evaluate_model(model, env, num_episodes=1000):
     successes = 0
     action_space_size = env.get_action_space_size()
-    state_size = env.num_nodes
     for episode in range(1, num_episodes + 1):
         state = env.reset()
         done = False
@@ -310,7 +310,7 @@ def evaluate_model(model, env, num_episodes=1000):
                 q_values = model(state_tensor).squeeze(0)  # shape: [action_space_size]
 
                 # Lọc q_values chỉ lấy index hợp lệ
-                valid_indices = [idx for idx in range(action_space_size) if is_valid_index(idx, state_size)]
+                valid_indices = [idx for idx in range(action_space_size) if is_valid_index(idx, env.num_honeypot_nodes)]
                 valid_q_values = q_values[valid_indices]
 
                 # Lấy chỉ số trong valid_indices có q_value max
@@ -319,14 +319,14 @@ def evaluate_model(model, env, num_episodes=1000):
                 # Map về action_idx thực
                 action_idx = valid_indices[max_idx_in_valid]
 
-            action = index_to_action(action_idx, state_size)
+            action = index_to_action(action_idx, env.num_honeypot_nodes)
             next_state, reward, done, path, captured = env.step(action)
 
             state = next_state
             honeypot_nodes = []
             for i in range(2):
                 node_idx = np.argmax(action[i])
-                honeypot_nodes.append(env.nodes[node_idx])
+                honeypot_nodes.append(env.honeypot_nodes[node_idx])
             print("Episode:", episode)
             if reward == 1:  # Honeypot bẫy được kẻ tấn công
                 successes += 1
@@ -340,6 +340,3 @@ def evaluate_model(model, env, num_episodes=1000):
 
     dsp = (successes / num_episodes) * 100
     print(f"\nDefense success probability: {dsp:.2f}%")
-
-
-
