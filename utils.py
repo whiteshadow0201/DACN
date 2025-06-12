@@ -75,7 +75,7 @@ def sample_valid_index(action_space_size, num_nodes, exploration_counter, min_ex
         return selected_idx
 
 
-def sample_exploration_index(new_action_space_size, new_num_honeypot_nodes, old_num_honeypot_nodes, exploration_counter, min_explorations=10):
+def sample_exploration_index(new_action_space_size, new_num_honeypot_nodes, old_num_honeypot_nodes, exploration_counter,min_explorations=10):
     """
     Samples a random index from possible new node pairs in an expanded action space.
     Uses Cantor pairing to map node pairs (i, j) to unique indices, considering only
@@ -96,7 +96,7 @@ def sample_exploration_index(new_action_space_size, new_num_honeypot_nodes, old_
         ValueError: If no valid new-node-related actions are found
     """
     new_node_indices = []
-
+    exploration_done = False
     # Generate all valid indices for new node pairs
     for i in range(new_num_honeypot_nodes):
         for j in range(new_num_honeypot_nodes):
@@ -116,11 +116,11 @@ def sample_exploration_index(new_action_space_size, new_num_honeypot_nodes, old_
     if under_explored:
         selected_idx = random.choice(under_explored)
         exploration_counter[selected_idx] += 1
-        return selected_idx
+        return selected_idx, exploration_done
     else:
         selected_idx = random.choice(new_node_indices)
-        exploration_counter[selected_idx] += 1
-        return selected_idx
+        exploration_done = True
+        return selected_idx, exploration_done
 
 class DQN(nn.Module):
     def __init__(self, state_size, action_space_size):
