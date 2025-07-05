@@ -173,10 +173,9 @@ class NetworkSecurityEnv:
         self.node_to_idx = {node: idx for idx, node in enumerate(self.nodes)}
 
         print("node_to_idx:", self.node_to_idx)
-        # Danh sách các node có thể đặt honeypot (loại trừ cả Attacker và Data Server)
-        self.honeypot_nodes = [n for n in self.nodes if n != goal]
+        # Include all nodes as honeypot-eligible (no exclusion of goal)
+        self.honeypot_nodes = self.nodes  # Changed to include "Data Server"
         self.num_honeypot_nodes = len(self.honeypot_nodes)
-
 
     def reset(self):
         self.state = np.zeros(self.num_nodes, dtype=np.float32)
