@@ -218,7 +218,7 @@ class NetworkSecurityEnv:
         return new_state, reward, done, path, captured
 
     def get_action_space_size(self):
-        return 2 * self.num_honeypot_nodes ** 2
+        return 2 * self.num_honeypot_nodes ** 2 + self.num_honeypot_nodes
 
 
 # Attacker's greedy attack with randomizer
